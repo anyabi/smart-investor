@@ -1,6 +1,9 @@
 # Smart Investor
 
 Smart Investor is a tool designed to generate a stock price list for users and provides buying and selling advice based on the principles of value investing.
+Notice：
+    The investment recommendation algorithm is still being optimized and should only be used for reference. 
+    The stock market has risks; invest with caution.
 
 ## Features
 

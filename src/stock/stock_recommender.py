@@ -3,9 +3,10 @@ import pandas as pd
 from path import Path
 from datetime import datetime, timedelta
 import pytz
+import os
 import json
 import numpy as np
-from .generate_html import app, app_setup
+from stock.generate_html import app, app_setup
 from multiprocessing import Process
 
 tmp_dir = Path(__file__).parent.parent / 'tmp'
@@ -163,20 +164,21 @@ class Stock:
             reasonable_price = self._cal_safe_margin_weight()
         elif method == 'middle':
             reasonable_price = self._cal_safe_margin_middle()
-
         current_price = float(self.history_k['close'])
-        safe_margin_dict['current_price'] = current_price
-        safe_margin_dict['reasonable_price'] = reasonable_price
-        safe_margin_dict['buy_price'] = (1 - margin_ratio) * reasonable_price
-        safe_margin_dict['sell_price'] = (1 + margin_ratio) * reasonable_price
+        safe_margin_dict['industry'] = self.industry['industry']
+        safe_margin_dict['current_price'] = np.around(current_price, decimals=2)
+        safe_margin_dict['reasonable_price'] = np.around(reasonable_price, decimals=2)
+        safe_margin_dict['buy_price'] = np.around((1 - margin_ratio) * reasonable_price, decimals=2)
+        safe_margin_dict['sell_price'] = np.around((1 + margin_ratio) * reasonable_price, decimals=2)
         safe_margin_dict['buy_price_flag'] = current_price < safe_margin_dict['buy_price']
         safe_margin_dict['sell_price_flag'] = current_price > safe_margin_dict['sell_price']
-        safe_margin_dict['safe_margin'] = reasonable_price - current_price
-        safe_margin_dict['safe_margin_ratio'] = (reasonable_price - current_price) / current_price
+        safe_margin_dict['safe_margin'] = np.around(reasonable_price - current_price, decimals=2)
+        safe_margin_dict['safe_margin_ratio'] = np.around((reasonable_price - current_price) / current_price,
+                                                          decimals=2)
 
-        safe_margin_dict['NetAsset'] = self.margin['NetAsset']
-        safe_margin_dict['Earnings'] = self.margin['Earnings']
-        safe_margin_dict['PriceToSales'] = self.margin['PriceToSales']
+        safe_margin_dict['NetAsset'] = np.around(self.margin['NetAsset'], decimals=2)
+        safe_margin_dict['Earnings'] = np.around(self.margin['Earnings'], decimals=2)
+        safe_margin_dict['PriceToSales'] = np.around(self.margin['PriceToSales'], decimals=2)
         self.safe_margin[method] = safe_margin_dict
         # return safe_margin_dict
 
@@ -203,12 +205,15 @@ class Stock:
 
     def _evaluate_Earnings(self):
         '''
-        盈余法 = {季度总利润}*4/{总股本}
+        盈余法 = {季度总利润}*4*{市盈率}/{总股本}
         :return:
         '''
         try:
-            safe_margin = float(self.profit['netProfit']) * 4 / float(self.profit['totalShare'])
-            # * float(self.stock_info['peTTM'])
+            peTTM = float(self.history_k['peTTM'])
+            if peTTM > 25:
+                peTTM = 1
+            safe_margin = float(self.profit['netProfit']) * 4 * peTTM / float(self.profit['totalShare'])
+
             self.margin['Earnings'] = safe_margin
         except Exception:
             pass
@@ -274,10 +279,17 @@ class StockRecommender:
         self.cluster = cluster
         self.stocks = []
 
+    def clean_bad_file(self):
+        for file in data_dir.walkfiles():
+            # print(os.path.getsize(file))
+            if os.path.getsize(file) < 5:
+                os.remove(file)
+
     def data_loader(self):
+        self.clean_bad_file()
         self.get_stocks_list()
         for _, stock_code, stock_name in self.stock_list.data:
-            print('读取数据中：', stock_name)
+            print('读取数据中：', stock_code, stock_name)
             try:
                 stock = Stock(stock_code, stock_name)
                 stock.get_history_k()
@@ -299,7 +311,8 @@ class StockRecommender:
 
     def report_by_stock(self):
         stocks = self.stocks
-        index_list = ['current_price',
+        index_list = ['industry',
+                      'current_price',
                       'reasonable_price',
                       'NetAsset',
                       'Earnings',
@@ -311,7 +324,8 @@ class StockRecommender:
                       'safe_margin',
                       'safe_margin_ratio',
                       ]
-        index_name = ['当前价格',
+        index_name = ['行业',
+                      '当前价格',
                       '合理价值',
                       '净资产法',
                       '盈余法',
@@ -332,16 +346,6 @@ class StockRecommender:
                 a = [stock.code, stock.name]
                 for info in index_list:
                     item = stock.safe_margin[method][info]
-                    if info in ['current_price',
-                                'reasonable_price',
-                                'NetAsset',
-                                'Earnings',
-                                'PriceToSales',
-                                'buy_price',
-                                'sell_price',
-                                'safe_margin',
-                                'safe_margin_ratio']:
-                        item = np.around(float(item), decimals=2)
                     a.append(item)
                 b.append(a)
             csv_path = tmp_dir / f'stock-recommmender-{last_date}-{method}.csv'
